@@ -1,0 +1,638 @@
+---
+title: "R code for meta-analysis ROI article"
+author: "Ujjayini Das"
+output: html_document
+date: "2026-10-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+#install.packages("meta")
+#install.packages("metafor")
+#install.packages("emmeans")
+library(emmeans)
+library(meta)
+library(metafor)
+library(readxl)
+library(tidyverse)
+library(gt)
+library(lme4)
+```
+
+## Overview
+
+This script contains code to perform meta-analysis in the article. The cleaned data is provided in the GitHub repository.
+
+## Load data
+
+```{r}
+df_roi_grand = read_excel("./Data/ROI_data_analysis.xlsx", 
+    sheet = "Bivariate results")
+
+# select relevant columns and subset for studies with bivariate analysis
+df_roi = df_roi_grand %>% dplyr::select(c(1,3,7,9,11,13,14,39,41:43, 48,62:63, 70:72, 99:102)) %>%
+  filter(`Bivariate done` == "Y")
+# overall data (dataset to use for all race of respondents combined) 
+df_roi_overall = df_roi_grand %>% dplyr::select(c(1,3,7,9,11,13,14,39,41:43, 48,62:63, 70:72, 95:98)) %>%
+  filter(`Bivariate done` == "Y") %>%
+  mutate(total_qs = `total #NR`+ `total #R`,
+         sig_qs = round(`total #sig NR`+ `total #sig R`,0)) %>%
+  dplyr::select(1:17,22:23)
+
+
+## Subset data by race of respondents and whether the analysis involves YEAR
+# for analysis involving YEAR 
+df_roi_year = df_roi_overall[-c(1,2),]
+# for all analysis not involving YEAR
+df_roi_else = df_roi_overall[-27,]
+
+# data set for Blacks
+# no YEAR
+df_roi_black = df_roi %>% filter(ROR_Black == "Yes")
+# with YEAR
+df_roi_black_year = df_roi_black[-c(1,2),]
+
+# data set for Whites
+# no YEAR
+df_roi_white = df_roi %>% filter(ROR_White == "Yes")
+# with YEAR
+df_roi_white_else = df_roi_white[-16,]
+```
+
+
+## Phase 1: Meta-analysis by study-level predictors that do not vary within a study
+
+These analyses fit the GLMM specified in the article (phase 1). The code enables analysis by Black and White respondent groups separately and also overall (Black, White, Hispanic respondents). 
+
+### Analysis for overall sample (all race of respondents combined)
+
+```{r overall_phase1}
+meta_overall_else = metaprop(
+  event = sig_qs,
+  n = total_qs,
+  studlab = `Author(s)`,
+  data = df_roi_else,
+  sm = "PLOGIT",
+  method = "GLMM",
+  common  = FALSE,
+  random = TRUE,
+  keepdata = TRUE
+)
+mods = names(df_roi_else)[c(3:5, 8:11)]
+df_roi_else[mods] = lapply(df_roi_else[mods], factor)
+
+subgroup_roi_else_overall = lapply(mods, function(v) {
+  df_roi_else[[v]] = factor(df_roi_else[[v]])
+  res = update(
+    meta_overall_else,
+    subgroup      = df_roi_else[[v]],
+    print.subgroup.name = FALSE  
+  )
+  
+  res
+})
+names(subgroup_roi_else_overall) = mods
+
+## Analysis involving YEAR
+meta_overall_year = metaprop(
+  event = sig_qs,
+  n = total_qs,
+  studlab = `Author(s)`,
+  data = df_roi_year,
+  sm = "PLOGIT",
+  method = "GLMM",
+  common  = FALSE,
+  random = TRUE,
+  keepdata = TRUE
+)
+mods_y = names(df_roi_year)[2]
+df_roi_year[mods_y] = lapply(df_roi_year[mods_y], factor)
+
+subgroup_roi_year_overall = lapply(mods_y, function(v) {
+  df_roi_year[[v]] = factor(df_roi_year[[v]])
+  res = update(
+    meta_overall_year,
+    subgroup      = df_roi_year[[v]],
+    print.subgroup.name = FALSE
+  )
+  
+  res
+})
+names(subgroup_roi_year_overall) = mods_y
+
+# Table 3 (panel 4-10) and Table S1, S2 in Appendix B created from the following results
+print(subgroup_roi_else_overall) 
+print(subgroup_roi_year_overall)
+```
+
+### Analysis for Black respondents
+
+```{r black_phase1}
+
+meta_black = metaprop(
+  event = `total #sig questions Black`,
+  n = `total #questions Black`,
+  studlab = `Author(s)`,
+  data = df_roi_black,
+  sm = "PLOGIT",
+  method = "GLMM",
+  common  = FALSE,
+  random = TRUE,
+  keepdata = TRUE
+)
+mods_black = names(df_roi_black)[c(3:5,8:11)]
+subgroup_roi_else_results_black = lapply(mods_black, function(v) {
+  # Ensure variable is treated as factor for nice labels
+  df_roi_black[[v]] = factor(df_roi_black[[v]])
+  res = update(
+    meta_black,
+    subgroup      = df_roi_black[[v]],
+    print.subgroup = FALSE  # keep printing under control
+  )
+  
+  res
+})
+names(subgroup_roi_else_results_black) = mods_black
+
+# involving YEAR
+meta_black_year = metaprop(
+  event = `total #sig questions Black`,
+  n = `total #questions Black`,
+  studlab = `Author(s)`,
+  data = df_roi_black_year,
+  sm = "PLOGIT",
+  method = "GLMM",
+  common  = FALSE,
+  random = TRUE,
+  keepdata = TRUE
+)
+mods_black_year =  names(df_roi_black_year)[2]
+subgroup_result_year_black = lapply(mods_black_year, function(v) {
+  df_roi_black_year[[v]] = factor(df_roi_black_year[[v]])
+  res_year = update(
+    meta_black_year,
+    subgroup      = df_roi_black_year[[v]],
+    print.subgroup.name = FALSE
+  )
+  
+  res_year
+})
+names(subgroup_result_year_black) = mods_black_year
+
+# Table 3 and S1, S2 in Appendix B
+print(subgroup_roi_else_results_black)
+print(subgroup_result_year_black)
+```
+
+### Analysis for White respondents
+```{r white_phase1}
+meta_white = metaprop(
+  event = `total #sig questions White`,
+  n = `total #questions White`,
+  studlab = `Author(s)`,
+  data = df_roi_white_else,
+  sm = "PLOGIT",
+  method = "GLMM",
+  common  = FALSE,
+  random = TRUE,
+  keepdata = TRUE
+)
+mods_white = names(df_roi_white_else)[c(3:5,8:11)]
+subgroup_roi_else_results_white = lapply(mods_white, function(v) {
+
+  df_roi_white_else[[v]] = factor(df_roi_white_else[[v]])
+  res = update(
+    meta_white,
+    subgroup      = df_roi_white_else[[v]],
+    print.subgroup.name = FALSE
+  )
+  
+  res
+})
+names(subgroup_roi_else_results_white) = mods_white
+
+## Analysis involving YEAR
+
+meta_white_year = metaprop(
+  event = `total #sig questions White`,
+  n = `total #questions White`,
+  studlab = `Author(s)`,
+  data = df_roi_white,
+  sm = "PLOGIT",
+  method = "GLMM",
+  common  = FALSE,
+  random = TRUE,
+  keepdata = TRUE
+)
+mods_white_year =  names(df_roi_white)[2]
+subgroup_result_year_white = lapply(mods_white_year, function(v) {
+  # Ensure variable is treated as factor for nice labels
+  df_roi_white[[v]] = factor(df_roi_white[[v]])
+  res_year = update(
+    meta_white_year,
+    byvar      = df_roi_white[[v]],
+    print.byvar = FALSE  # keep printing under control
+  )
+  
+  res_year
+})
+
+
+names(subgroup_result_year_white) = mods_white_year
+
+## Table 3, S1 and S2 in Appendix B
+print(subgroup_roi_else_results_white)
+print(subgroup_result_year_white)
+```
+
+
+## Phase 2: Meta-regression for predictors that vary within a study
+
+The code blocks below perform meta-regression analysis that fits a multilevel mixed-effects model with random intercepts for studies to assess associations between the reported proportion of items being statistically significant for ROI effect and predictors that vary within a study (phase 2).
+
+### Analysis for race of respondents
+
+```{r ror_phase2}
+df_race = df_roi_grand %>% dplyr::select(c(1,14,64:65,99:104)) %>% filter(`Bivariate done` == "Y")
+df_race_group = df_race[-27,] %>% dplyr::select(1, 5:10)
+colnames(df_race_group) = c("Authors", "total_items_Black", "sig_items_Black", "total_items_White", "sig_items_White", "total_items_Hispanic", "sig_items_Hispanic")
+df_race_long_mv = df_race_group %>%
+  pivot_longer(
+    cols = c(
+      total_items_Black, sig_items_Black,
+      total_items_White, sig_items_White,
+      total_items_Hispanic, sig_items_Hispanic
+    ),
+    names_to = c(".value", "race"),
+    names_pattern = "(.*)_(Black|White|Hispanic)$"
+  ) %>%
+  mutate(
+    race = factor(
+      race,
+      levels = c("Black", "White", "Hispanic")
+    ),
+    total_items = as.numeric(total_items),
+    sig_items = as.numeric(sig_items)
+  ) %>%
+  filter(
+    !is.na(total_items),
+    !is.na(sig_items),
+    total_items > 0,
+    sig_items >= 0,
+    sig_items <= total_items,
+    total_items == floor(total_items),
+    sig_items == floor(sig_items)
+  )
+dat_race_es = escalc(
+  measure = "PLO",
+  xi = sig_items,
+  ni = total_items,
+  data = df_race_long_mv
+)
+fit_race_mv = rma.mv(
+  yi,
+  vi,
+  mods = ~ race,
+  random = ~ 1 | Authors,
+  data = dat_race_es,
+  method = "REML"
+)
+
+## Model results (tests in Table S1 and Table 3)
+summary(fit_race_mv)
+
+new_race = data.frame(
+  race = factor(
+    c("Black", "White", "Hispanic"),
+    levels = levels(dat_race_es$race)
+  )
+)
+
+X_race = model.matrix(
+  ~ race,
+  data = new_race
+)
+
+pred_race = predict(
+  fit_race_mv,
+  newmods = X_race[, -1, drop = FALSE],
+  transf = transf.ilogit
+)
+
+results_race_mv = data.frame(
+  race = new_race$race,
+  pooled_proportion = pred_race$pred,
+  ci_lower = pred_race$ci.lb,
+  ci_upper = pred_race$ci.ub
+)
+## Pooled proportions in Table 3 panel 1
+results_race_mv
+```
+
+### Analysis for overall sample (Nonracial vs. racial and Factual vs. attitudinal items)
+
+```{r overall_phase2}
+
+# 1. Nonracial vs. Racial Items
+## Data preparation
+df_overall = df_roi_grand %>% dplyr::select(1,13:14, 48,95:98) %>% filter(`Bivariate done` == "Y")
+colnames(df_overall) = c("Authors", "multivariate_done", "bivariate_done", "quality_measure", "total_NR", "sig_NR", "total_R", "sig_R")
+df_overall_long = df_overall %>%
+  pivot_longer(
+    cols = c(total_NR, sig_NR, total_R, sig_R),
+    names_to = c(".value", "type"),
+    names_pattern = "(.*)_(NR|R)$"
+  ) %>%
+  rename(total_questions = total,
+         sig_questions = sig) %>%
+  # Remove rows where both total and sig are missing/NA
+  filter(!is.na(total_questions) & !is.na(sig_questions)) %>%
+  # Keep only rows where total > 0 (i.e., study reported this type)
+  filter(total_questions > 0)
+
+df_overall.long = escalc(
+  measure = "PLO",           # Proportions with logit transformation
+  xi = sig_questions,        
+  ni = total_questions,      
+  data = df_overall_long
+)
+## Setting nonracial as the reference level
+df_overall.long$type = relevel(
+  factor(df_overall.long$type),
+  ref = "nonracial"
+)
+
+## Model fitting
+res_overall = rma.mv(
+  yi, vi,
+  mods = ~ type,
+  random = ~ 1 | Authors,    # Random effect for study (Authors)
+  data = df_overall.long,
+  method = "REML"
+)
+## Model results (Table 3 (panel 2), S1 and S3 in Appendix B)
+print(res_overall)
+
+## Get pooled estimates
+overall_nr = predict(res_overall, newmods = 0, transf = transf.ilogit)
+overall_r = predict(res_overall, newmods = 1, transf = transf.ilogit)
+
+results_table_overall = data.frame(
+  Group = c("Overall", "Overall"),
+  Type = c("Nonracial", "Racial"),
+  Pooled_Proportion = c(round(overall_nr$pred,2), round(overall_r$pred,2)),
+  CI_Lower = c(round(overall_nr$ci.lb,2), round(overall_r$ci.lb,2)),
+  CI_Upper = c(round(overall_nr$ci.ub,2), round(overall_r$ci.ub,2))
+)
+
+## 2. Factual vs. Attitudinal Items
+
+df_attfact = df_roi_grand %>% dplyr::select(c(1,3,7,9,11,13,14,39,41:43, 48,62:63, 70:72, 105:120)) %>% filter(`Bivariate done` == "Y")
+df_attfact_overall = df_attfact %>% dplyr::select(1, 30:33)
+colnames(df_attfact_overall) = c("Authors", "total_attitude", "sig_attitude", "total_fact", "sig_fact")
+df_attfact_overall_long = df_attfact_overall %>%
+  pivot_longer(
+    cols = c(total_attitude, sig_attitude, total_fact, sig_fact),
+    names_to = c(".value", "type"),
+    names_pattern = "(.*)_(attitude|fact)$"
+  ) %>%
+  rename(total_questions = total,
+         sig_questions = sig) %>%
+  # Remove rows where both total and sig are missing/NA
+  filter(!is.na(total_questions) & !is.na(sig_questions)) %>%
+  # Keep only rows where total > 0 (i.e., study reported this type)
+  filter(total_questions > 0)
+
+df_attfact_overall_long = escalc(
+  measure = "PLO",           # Proportions with logit transformation
+  xi = sig_questions,        
+  ni = total_questions,     
+  data = df_attfact_overall_long
+)
+## setting factual as reference level
+df_attfact_overall_long$type = relevel(
+  factor(df_attfact_overall_long$type),
+  ref = "fact"
+)
+
+res_attfact_overall = rma.mv(
+  yi, vi,
+  mods = ~ type,
+  random = ~ 1 | Authors,    # Random effect for study (Authors)
+  data = df_attfact_overall_long,
+  method = "REML"
+)
+## Model results (Table 3 (panel 3), S1 and S3 in Appendix B)
+print(res_attfact_overall)
+## Get pooled estimates
+overall_fact = predict(res_attfact_overall, newmods = 0, transf = transf.ilogit)
+overall_attitude = predict(res_attfact_overall, newmods = 1, transf = transf.ilogit)
+
+attfact_results_table_overall = data.frame(
+  Group = c("Overall", "Overall"),
+  Type = c("Attitude", "Fact"),
+  Pooled_Proportion = c(round(overall_attitude$pred,2), round(overall_fact$pred,2)),
+  CI_Lower = c(round(overall_attitude$ci.lb,2), round(overall_fact$ci.lb,2)),
+  CI_Upper = c(round(overall_attitude$ci.ub,2), round(overall_fact$ci.ub,2))
+)
+```
+
+### Analysis for Black respondents (Nonracial vs. racial and Factual vs. attitudinal items)
+
+```{r black_phase2}
+
+## 1. Nonracial vs. Racial items
+
+df_blacks = df_roi_grand %>% dplyr::select(1,13:14,48,70,83:86) %>% filter(`Bivariate done` == "Y") %>% filter(ROR_Black == "Yes")
+colnames(df_blacks) = c("Authors", "multivariate_done", "bivariate_done","quality_measure", "ROR_Black", "total_NR", "sig_NR", "total_R", "sig_R")
+df_blacks_long = df_blacks %>%
+  pivot_longer(
+    cols = c(total_NR, sig_NR, total_R, sig_R),
+    names_to = c(".value", "type"),
+    names_pattern = "(.*)_(NR|R)$"
+  ) %>%
+  rename(total_questions = total,
+         sig_questions = sig) %>%
+  # Remove rows where both total and sig are missing/NA
+  filter(!is.na(total_questions) & !is.na(sig_questions)) %>%
+  # Keep only rows where total > 0 (i.e., study reported this type)
+  filter(total_questions > 0)
+
+df_blacks.long = escalc(
+  measure = "PLO",           # Proportions with logit transformation
+  xi = sig_questions,        
+  ni = total_questions,      
+  data = df_blacks_long
+)
+df_blacks.long$type = relevel(
+  factor(df_blacks.long$type),
+  ref = "NR"
+)
+
+res_blacks = rma.mv(
+  yi, vi,
+  mods = ~ type,
+  random = ~ 1 | Authors,    # Random effect for study (Authors)
+  data = df_blacks.long,
+  method = "REML"
+)
+## Model results (Table 3 panel 2, Tables S1 and S3 in Appendix B)
+print(res_blacks)
+## get pooled estimates
+blacks_nr = predict(res_blacks, newmods = 0, transf = transf.ilogit)
+blacks_r = predict(res_blacks, newmods = 1, transf = transf.ilogit)
+
+results_table_blacks = data.frame(
+  Group = c("Black", "Black"),
+  Type = c("Nonracial", "Racial"),
+  Pooled_Proportion = c(round(blacks_nr$pred,2), round(blacks_r$pred,2)),
+  CI_Lower = c(round(blacks_nr$ci.lb,2), round(blacks_r$ci.lb,2)),
+  CI_Upper = c(round(blacks_nr$ci.ub,2), round(blacks_r$ci.ub,2))
+)
+
+##  2. Factual vs. Attitudinal items
+
+df_attfact_blacks = df_attfact %>% dplyr::select(1,15,18:21) %>% filter(ROR_Black == "Yes")
+colnames(df_attfact_blacks) = c("Authors", "ROR_Black", "total_attitude", "sig_attitude", "total_fact", "sig_fact")
+df_attfact_blacks_long = df_attfact_blacks %>%
+  pivot_longer(
+    cols = c(total_attitude, sig_attitude, total_fact, sig_fact),
+    names_to = c(".value", "type"),
+    names_pattern = "(.*)_(attitude|fact)$"
+  ) %>%
+  rename(total_questions = total,
+         sig_questions = sig) %>%
+  # Remove rows where both total and sig are missing/NA
+  filter(!is.na(total_questions) & !is.na(sig_questions)) %>%
+  # Keep only rows where total > 0 (i.e., study reported this type)
+  filter(total_questions > 0)
+df_attfact_blacks_long = escalc(
+  measure = "PLO",           # Proportions with logit transformation
+  xi = sig_questions,        
+  ni = total_questions,      
+  data = df_attfact_blacks_long
+)
+df_attfact_blacks_long$type = relevel(
+  factor(df_attfact_blacks_long$type),
+  ref = "fact"
+)
+res_attfact_blacks = rma.mv(
+  yi, vi,
+  mods = ~ type,
+  random = ~ 1 | Authors,    # Random effect for study (Authors)
+  data = df_attfact_blacks_long,
+  method = "REML"
+)
+## Model results (Table 3 (panel 3), S1 and S3 in Appendix B)
+print(res_attfact_blacks)
+## Get pooled estimates
+blacks_attitude = predict(res_attfact_blacks, newmods = 1, transf = transf.ilogit)
+blacks_fact = predict(res_attfact_blacks, newmods = 0, transf = transf.ilogit)
+
+attfact_results_table_blacks = data.frame(
+  Group = c("Black", "Black"),
+  Type = c("Attitude", "Fact"),
+  Pooled_Proportion = c(round(blacks_attitude$pred,2), round(blacks_fact$pred,2)),
+  CI_Lower = c(round(blacks_attitude$ci.lb,2), round(blacks_fact$ci.lb,2)),
+  CI_Upper = c(round(blacks_attitude$ci.ub,2), round(blacks_fact$ci.ub,2))
+)
+```
+
+### Analysis for White repondents (Nonracial vs. racial and Factual vs. attitudinal items)
+
+```{r white_phase2}
+# 1. Nonracial vs. Racial items
+df_whites = df_roi_grand %>% dplyr::select(1,13:14,48,71,87:90) %>% filter(`Bivariate done` == "Y") %>% filter(ROR_White == "Yes")
+colnames(df_whites) = c("Authors", "multivariate_done", "bivariate_done", "quality_measure","ROR_White", "total_NR", "sig_NR", "total_R", "sig_R")
+df_whites_long = df_whites %>%
+  pivot_longer(
+    cols = c(total_NR, sig_NR, total_R, sig_R),
+    names_to = c(".value", "type"),
+    names_pattern = "(.*)_(NR|R)$"
+  ) %>%
+  rename(total_questions = total,
+         sig_questions = sig) %>%
+  # Remove rows where both total and sig are missing/NA
+  filter(!is.na(total_questions) & !is.na(sig_questions)) %>%
+  # Keep only rows where total > 0 (i.e., study reported this type)
+  filter(total_questions > 0)
+df_whites.long = escalc(
+  measure = "PLO",           # Proportions with logit transformation
+  xi = sig_questions,       
+  ni = total_questions,       
+  data = df_whites_long
+)
+df_whites.long$type = relevel(
+  factor(df_whites.long$type),
+  ref = "NR"
+)
+
+res_whites = rma.mv(
+  yi, vi,
+  mods = ~ type,
+  random = ~ 1 | Authors,    # Random effect for study (Authors)
+  data = df_whites.long,
+  method = "REML"
+)
+## Model results (Table 3 (panel 2), S1 and S3 in Appendix B)
+print(res_whites)
+## Get pooled estimates
+whites_nr = predict(res_whites, newmods = 0, transf = transf.ilogit)
+whites_r = predict(res_whites, newmods = 1, transf = transf.ilogit)
+
+results_table_whites = data.frame(
+  Group = c("White", "White"),
+  Type = c("Nonracial", "Racial"),
+  Pooled_Proportion = c(round(whites_nr$pred,2), round(whites_r$pred,2)),
+  CI_Lower = c(round(whites_nr$ci.lb,2), round(whites_r$ci.lb,2)),
+  CI_Upper = c(round(whites_nr$ci.ub,2), round(whites_r$ci.ub,2))
+)
+
+## 2. Factual vs. Attitudinal items
+df_attfact_whites = df_attfact %>% dplyr::select(1,16,22:25) %>% filter(ROR_White == "Yes")
+colnames(df_attfact_whites) = c("Authors", "ROR_White", "total_attitude", "sig_attitude", "total_fact", "sig_fact")
+df_attfact_whites_long = df_attfact_whites %>%
+  pivot_longer(
+    cols = c(total_attitude, sig_attitude, total_fact, sig_fact),
+    names_to = c(".value", "type"),
+    names_pattern = "(.*)_(attitude|fact)$"
+  ) %>%
+  rename(total_questions = total,
+         sig_questions = sig) %>%
+  # Remove rows where both total and sig are missing/NA
+  filter(!is.na(total_questions) & !is.na(sig_questions)) %>%
+  # Keep only rows where total > 0 (i.e., study reported this type)
+  filter(total_questions > 0)
+df_attfact_whites_long = escalc(
+  measure = "PLO",           # Proportions with logit transformation
+  xi = sig_questions,        
+  ni = total_questions,      
+  data = df_attfact_whites_long
+)
+df_attfact_whites_long$type = relevel(
+  factor(df_attfact_whites_long$type),
+  ref = "fact"
+)
+
+res_attfact_whites = rma.mv(
+  yi, vi,
+  mods = ~ type,
+  random = ~ 1 | Authors,    # Random effect for study (Authors)
+  data = df_attfact_whites_long,
+  method = "REML"
+)
+## Model results (Table 3 (panel 3), S1 and S3 in Appendix B)
+print(res_attfact_whites)
+## Get pooled estimates
+whites_attitude = predict(res_attfact_whites, newmods = 1, transf = transf.ilogit)
+whites_fact = predict(res_attfact_whites, newmods = 0, transf = transf.ilogit)
+
+attfact_results_table_whites = data.frame(
+  Group = c("White", "White"),
+  Type = c("Attitude", "Fact"),
+  Pooled_Proportion = c(round(whites_attitude$pred,2), round(whites_fact$pred,2)),
+  CI_Lower = c(round(whites_attitude$ci.lb,2), round(whites_fact$ci.lb,2)),
+  CI_Upper = c(round(whites_attitude$ci.ub,2), round(whites_fact$ci.ub,2))
+)
+```
